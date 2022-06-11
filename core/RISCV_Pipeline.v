@@ -42,12 +42,15 @@ assign ICACHE_wen = 0;
 //---------module instantiation and module wire definition-------
 wire [31:0] pc_IF_ID,inst_IF_ID;
 wire [31:0] pc_jump;
-wire haz_ID = 0;
+wire haz_ID;
+//assign haz_ID = 0;
 wire EX_haz;
 wire branch_stall;
 wire IDIF_bubble;
 wire [31:0] pc_jump_jal;
 wire jump_jal;
+wire jump ;
+//wire ID_EX_bubble;
 IF instfetch(
     .clk(clk),
     .rst_n(rst_n),
@@ -130,6 +133,7 @@ ID instdec(
     .o_ID_EX_jalr(ID_EX_jalr),
     .o_jump_jal(jump_jal),
     .o_pc_jump_jal(pc_jump_jal)
+    //.o_ID_EX_bubble(ID_EX_bubble)
 );
 
 wire [4:0] rd_EX_MEM;
@@ -138,6 +142,7 @@ wire [31:0] rs2_EX_MEM;
 wire EX_stall;
 wire EX_forward1,EX_forward2;
 wire [31:0] EX_forward_data1,EX_forward_data2;
+wire [31:0] alu_out_forward;
 
 EX exe(
     .clk(clk),
@@ -170,8 +175,12 @@ EX exe(
     .i_ID_EX_bne(ID_EX_bne),
     .i_ID_EX_jalr(ID_EX_jalr),
     .o_pc_jump(pc_jump),
-    .o_jump(jump)
+    .o_jump_jalr(jump_jalr),
+    .o_jump_branch(jump_branch),
+    .i_alu_out_forward(alu_out_forward)
+    //.i_ID_EX_bubble(ID_EX_bubble)
 );
+assign jump = (jump_jalr || jump_branch);
 
 assign IDIF_bubble = (branch_stall || ID_EX_jalr);
 assign ID_EX_branch = (ID_EX_beq || ID_EX_bne);
@@ -235,8 +244,8 @@ IDForward idforwd(
     .o_ID_forward2(forward_ID2),
     .o_ID_forward_data2(forward_data_ID2),
     .i_ID_jalr(ID_jalr),
-    .i_ID_branch(ID_branch)
-    //.o_ID_haz(haz_ID)  // need to repeat in IF.ID, and add bubble to EX 
+    .i_ID_branch(ID_branch),
+    .o_ID_haz(haz_ID)  // need to repeat in IF.ID, and add bubble to EX 
 );
 
 EXForward exforwd(
@@ -259,7 +268,12 @@ EXForward exforwd(
     .i_ID_EX_rd_addr(rd_ID_EX),
     .i_IF_ID_rs1_addr(rs1_addr_ID),
     .i_IF_ID_rs2_addr(rs2_addr_ID),
-    .i_dstall(DCACHE_stall)
+    .i_dstall(DCACHE_stall),
+    .i_ID_EX_rs1_data(rs1_ID_EX),
+    .i_ID_EX_rs2_data(rs2_ID_EX),
+    .i_ctrl(ctrl_ex_ID_EX),
+    .i_imm(imm_ID_EX),
+    .o_alu_out(alu_out_forward)
 );
     
 endmodule
@@ -492,6 +506,7 @@ module ID (
     i_bubble,
     o_jump_jal,
     o_pc_jump_jal
+    //o_ID_EX_bubble
 );
 input clk;
 input rst_n;
@@ -524,6 +539,7 @@ output reg o_ID_EX_jalr;
 input i_bubble;
 output reg o_jump_jal;
 output reg [31:0] o_pc_jump_jal;
+//output reg o_ID_EX_bubble;
 //---------reg and wire definition-------
 
 
@@ -545,6 +561,7 @@ wire [6:0] opcode ;
 wire [2:0] funct3;
 wire [4:0] rd_addr;
 wire [4:0] rs1,rs2; 
+wire bubble = (i_ID_haz || i_EX_haz || i_bubble);
 wire [1:0] ctrl_wb_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {memtoreg,regwrite};
 wire [1:0] ctrl_mem_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {memread,memwrite};
 wire [5:0] ctrl_ex_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {alupc,aluctrl,alusrc};
@@ -714,6 +731,7 @@ reg [31:0] o_inst_w;
 reg [4:0] o_ID_EX_rs1_addr_w,o_ID_EX_rs2_addr_w;
 reg o_ID_EX_beq_w,o_ID_EX_bne_w;
 reg o_ID_EX_jalr_w;
+//reg o_ID_EX_bubble_w;
 
 always @(*) begin
     if (stall)begin
@@ -731,6 +749,7 @@ always @(*) begin
         o_ID_EX_rs1_addr_w = o_ID_EX_rs1_addr;
         o_ID_EX_rs2_addr_w = o_ID_EX_rs2_addr;
         o_ID_EX_jalr_w = o_ID_EX_jalr;
+        //o_ID_EX_bubble_w = o_ID_EX_bubble;
     end
     else begin
         o_pc_w = i_pc;
@@ -741,6 +760,7 @@ always @(*) begin
         o_ctrl_wb_w = ctrl_wb_w;
         o_ctrl_ex_w = ctrl_ex_w;
         o_ctrl_mem_w = ctrl_mem_w;
+        //o_ID_EX_bubble_w = bubble;
         if (i_ID_haz || i_EX_haz || i_bubble) begin
             o_inst_w = 32'h13;
             o_ID_EX_jalr_w = 0;
@@ -774,6 +794,7 @@ always @(posedge clk or negedge rst_n) begin
         o_ID_EX_beq <= 0;
         o_ID_EX_bne <= 0;
         o_ID_EX_jalr <= 0;
+        //o_ID_EX_bubble <= 0;
     end
     else begin
         o_pc <= o_pc_w;
@@ -790,6 +811,7 @@ always @(posedge clk or negedge rst_n) begin
         o_ID_EX_beq <= o_ID_EX_beq_w;
         o_ID_EX_bne <= o_ID_EX_bne_w;
         o_ID_EX_jalr <= o_ID_EX_jalr_w;
+        //o_ID_EX_bubble <= o_ID_EX_bubble_w;
     end
 end
     
@@ -828,7 +850,10 @@ module EX (
     i_ID_EX_bne,
     i_ID_EX_jalr,
     o_pc_jump,
-    o_jump
+    o_jump_jalr,
+    o_jump_branch,
+    i_alu_out_forward
+    //i_ID_EX_bubble
 );
 
 input clk,rst_n;
@@ -846,6 +871,8 @@ input i_EX_haz;
 input [31:0] i_inst;
 input i_ID_EX_beq,i_ID_EX_bne;
 input i_ID_EX_jalr;
+input [31:0] i_alu_out_forward;
+//input i_ID_EX_bubble;
 
 output reg [1:0] o_ctrl_mem;
 output reg [1:0] o_ctrl_wb;
@@ -854,15 +881,15 @@ output reg [31:0] o_rs2_data;
 output reg [31:0] o_alu_out;
 output reg [31:0] o_inst;
 output reg [31:0] o_pc_jump;
-output reg o_jump;
+output reg o_jump_jalr,o_jump_branch;
 
 reg [31:0] alu_in2,alu_in1;
-wire [31:0] alu_out;
+reg [31:0] alu_out;
 wire alusrc = i_ctrl_ex[0];
 wire alupc = i_ctrl_ex[5];
 wire [3:0] aluctrl = i_ctrl_ex[4:1];
 
-ALU alu0(.in1(alu_in1),.in2(alu_in2),.out(alu_out),.ctrl(aluctrl));
+//ALU alu0(.in1(alu_in1),.in2(alu_in2),.out(alu_out),.ctrl(aluctrl));
 
 reg [31:0] rs2_data_revised,rs1_data_revised;
 always @(*) begin
@@ -879,33 +906,28 @@ always @(*) begin
 end 
 
 always @(*) begin
-    if(alupc)begin
-        alu_in2 = i_pc;
-    end
-    else begin
-        if(alusrc)
-            alu_in2 = i_imm;
-        else
-            alu_in2 = rs2_data_revised;
-    end
-end
-always @(*) begin
-    if(alupc)begin
-        alu_in1 = 4;
-    end
-    else begin
-        alu_in1 = rs1_data_revised;
+    begin
+        if(alupc)begin
+            alu_out = i_pc + 4;
+        end
+        else begin
+            alu_out = i_alu_out_forward;
+        end
     end
 end
 
+
 wire rs_equal = (rs1_data_revised == rs2_data_revised);
 always @(*) begin
-    if((i_ID_EX_beq && rs_equal) || (i_ID_EX_bne && !rs_equal) || i_ID_EX_jalr)
-        o_jump = 1;
+    if((i_ID_EX_beq && rs_equal) || (i_ID_EX_bne && !rs_equal))
+        o_jump_branch = 1;
     else 
-        o_jump = 0;
+        o_jump_branch = 0;
 end
-wire [31:0] pc_jump_a = (i_ID_EX_jalr)? rs1_data_revised : i_pc;
+always @(*) begin
+    o_jump_jalr = i_ID_EX_jalr;
+end
+wire [31:0] pc_jump_a = (i_ID_EX_jalr)? i_rs1_data : i_pc;
 always @(*) begin
     o_pc_jump = pc_jump_a + i_imm;
 end
@@ -1169,6 +1191,76 @@ end
     
 endmodule
 
+module ALU_simple (
+    in1,in2,out,ctrl
+);
+input [31:0] in1,in2;
+output reg [31:0] out;
+input [3:0] ctrl;
+
+//ctrl param
+localparam ALU_ADD = 4'b0000;
+localparam ALU_SUB = 4'b0001;
+localparam ALU_SLT = 4'b0100;
+reg [31:0] in2_modify;
+wire [31:0] in2_neg = ~in2 + 1;
+wire [31:0] sum = in1 + in2_modify;
+
+always @(*) begin
+    case (ctrl)
+        ALU_ADD:begin
+            in2_modify = in2;
+            out = sum;
+        end 
+        ALU_SUB:begin
+            in2_modify = in2_neg;
+            out = sum;
+        end 
+        ALU_SLT:begin
+            in2_modify = in2_neg;
+            out = (sum[31]);
+        end 
+        default: begin
+            in2_modify = in2;
+            out = sum;
+        end  
+    endcase
+end
+    
+endmodule
+
+module ALU_fast (
+    in1,in2,out,ctrl
+);
+input [31:0] in1,in2;
+output reg [31:0] out;
+input [3:0] ctrl;
+
+//ctrl param
+localparam ALU_ADD = 4'b0000;
+localparam ALU_SUB = 4'b0001;
+localparam ALU_AND = 4'b0010;
+localparam ALU_OR =  4'b0011;
+localparam ALU_SLT = 4'b0100;
+localparam ALU_XOR = 4'b0101;
+localparam ALU_SLL = 4'b0110;
+localparam ALU_SRA = 4'b0111;
+localparam ALU_SRL = 4'b1000;
+
+always @(*) begin
+    case (ctrl)
+        ALU_AND: out = in1 & in2;
+        ALU_OR : out = in1 | in2;
+        ALU_XOR: out = in1 ^ in2;
+        ALU_SLL: out = in1 << in2;
+        ALU_SRA: out = $signed(in1) >>> in2;
+        ALU_SRL: out = in1 >> in2; 
+        default: out = in1 & in2; 
+    endcase
+end
+    
+endmodule
+
 module IDForward (
     i_ID_EX_rd_addr,
     i_ID_EX_ctrl_wb,//{memtoreg,regwrite}
@@ -1279,7 +1371,12 @@ module EXForward (
     o_EX_forward_data1,
     o_EX_forward_data2,
     o_EX_haz,
-    i_dstall
+    i_dstall,
+    i_ID_EX_rs1_data,
+    i_ID_EX_rs2_data,
+    i_ctrl,
+    i_imm,
+    o_alu_out
 );
 
 input [4:0] i_ID_EX_rs1_addr,i_ID_EX_rs2_addr;
@@ -1295,21 +1392,104 @@ input i_ID_jalr,i_ID_branch;
 input [4:0] i_ID_EX_rd_addr;
 input [1:0] i_ID_EX_ctrl_wb;
 input i_dstall;
+input [31:0] i_ID_EX_rs1_data,i_ID_EX_rs2_data;
+input [5:0] i_ctrl;
+input [31:0] i_imm;
+output reg [31:0] o_alu_out;
+
+wire alusrc = i_ctrl[0];
+wire alupc = i_ctrl[5];
+wire [3:0] aluctrl = i_ctrl[4:1];
 
 reg haz1,haz2;
+wire [31:0] rs2_modify;
+wire [31:0] alu_in2;
 
+wire [31:0] rs1_exmem_out,rs1_memwb_out,exmem_rs2_out,memwb_rs2_out,memwb_exmem_out,exmem_memwb_out,rs1_rs2_out;
+reg [31:0] rs1_data_revised,rs2_data_revised;
+wire [31:0] rs1_rs2_out_revised;
+reg rs1_mem,rs2_mem,rs1_wb,rs2_wb;
+
+ALU_fast   rs1_rs2_revised    (.in1(rs1_data_revised),.in2(alu_in2),     .out(rs1_rs2_out_revised),    .ctrl(aluctrl));
+ALU_simple rs1_rs2     (.in1(i_ID_EX_rs1_data),.in2(rs2_modify),     .out(rs1_rs2_out),    .ctrl(aluctrl));
+ALU_simple rs1_exmem   (.in1(i_ID_EX_rs1_data),.in2(i_EX_MEM_aluout),.out(rs1_exmem_out),  .ctrl(aluctrl));
+ALU_simple rs1_memwb   (.in1(i_ID_EX_rs1_data),.in2(i_WB_rd_data),   .out(rs1_memwb_out),  .ctrl(aluctrl));
+ALU_simple exmem_rs2   (.in1(i_EX_MEM_aluout),.in2(rs2_modify),      .out(exmem_rs2_out),  .ctrl(aluctrl));
+ALU_simple memwb_rs2   (.in1(i_WB_rd_data),   .in2(rs2_modify),      .out(memwb_rs2_out),  .ctrl(aluctrl));
+ALU_simple memwb_exmem (.in1(i_WB_rd_data),   .in2(i_EX_MEM_aluout), .out(memwb_exmem_out),.ctrl(aluctrl));
+ALU_simple exmem_memwb (.in1(i_EX_MEM_aluout),.in2(i_WB_rd_data),    .out(exmem_memwb_out),.ctrl(aluctrl));
 assign o_EX_haz = haz1 || haz2;
+assign alu_in2 = (alusrc)? i_imm : rs2_data_revised;
+assign rs2_modify = (alusrc)? i_imm : i_ID_EX_rs2_data;
+
+localparam ALU_ADD = 4'b0000;
+localparam ALU_SUB = 4'b0001;
+localparam ALU_SLT = 4'b0100;
+
+always @(*) begin
+    if ((aluctrl == ALU_ADD) || (aluctrl == ALU_SUB) || (aluctrl == ALU_SLT))begin
+        if (alusrc)begin
+            if(rs1_mem)begin
+                o_alu_out = exmem_rs2_out;
+            end
+            else if (rs1_wb)begin
+                o_alu_out = memwb_rs2_out;
+            end
+            else begin
+                o_alu_out = rs1_rs2_out;
+            end
+        end
+        else begin
+            case ({rs1_mem,rs2_mem,rs1_wb,rs2_wb})
+                4'b0000:begin
+                    o_alu_out = rs1_rs2_out;
+                end 
+                4'b0100:begin
+                    o_alu_out = rs1_exmem_out;
+                end
+                4'b1000:begin
+                    o_alu_out = exmem_rs2_out;
+                end
+                4'b0010:begin
+                    o_alu_out = memwb_rs2_out;
+                end
+                4'b0001:begin
+                    o_alu_out = rs1_memwb_out;
+                end
+                4'b1001:begin
+                    o_alu_out = exmem_memwb_out;
+                end
+                4'b0110:begin
+                    o_alu_out = memwb_exmem_out;
+                end
+                default: o_alu_out = rs1_rs2_out;
+            endcase
+        end
+    end
+    else begin
+        o_alu_out = rs1_rs2_out_revised;
+    end
+end
+
+
 always @(*) begin
     o_EX_forward1 = 0;
-    o_EX_forward_data1 = i_EX_MEM_aluout; //default value, not used 
+    rs1_mem = 0;
+    rs1_wb = 0;
+    rs1_data_revised = i_ID_EX_rs1_data;
+    o_EX_forward_data1 = 0; //default value, not used 
     if (i_ID_EX_rs1_addr) begin // not x0
         if((i_ID_EX_rs1_addr == i_EX_MEM_rd_addr) && i_EX_MEM_ctrl_wb[0])begin
             o_EX_forward1 = 1;
             o_EX_forward_data1 = i_EX_MEM_aluout;
+            rs1_data_revised = i_EX_MEM_aluout;
+            rs1_mem = 1;
         end
         else if ((i_ID_EX_rs1_addr == i_MEM_WB_rd_addr) && i_MEM_WB_ctrl_wb[0])begin
             o_EX_forward1 = 1;
             o_EX_forward_data1 = i_WB_rd_data;
+            rs1_data_revised = i_WB_rd_data;
+            rs1_wb = 1;
         end
     end
 end
@@ -1317,14 +1497,21 @@ end
 always @(*) begin
     o_EX_forward2 = 0;
     o_EX_forward_data2 = i_EX_MEM_aluout;
+    rs2_data_revised = i_ID_EX_rs2_data;
+    rs2_mem = 0;
+    rs2_wb = 0;
     if (i_ID_EX_rs2_addr) begin
         if((i_ID_EX_rs2_addr == i_EX_MEM_rd_addr) && i_EX_MEM_ctrl_wb[0])begin
             o_EX_forward2 = 1;
             o_EX_forward_data2 = i_EX_MEM_aluout;
+            rs2_data_revised = i_EX_MEM_aluout;
+            rs2_mem = 1;
         end
         else if ((i_ID_EX_rs2_addr == i_MEM_WB_rd_addr) && i_MEM_WB_ctrl_wb[0])begin
             o_EX_forward2 = 1;
             o_EX_forward_data2 = i_WB_rd_data;
+            rs2_data_revised = i_WB_rd_data;
+            rs2_wb = 1;
         end
     end
 end
