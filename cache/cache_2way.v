@@ -172,7 +172,7 @@ module cache(
                 mem_wdata = data_r[addr_index][ slot_num[addr_index] ];
                 // how modify, avoid duplicate
 
-                if (mem_ready_r) begin 
+                if (mem_ready) begin 
                     state_w = S_ALLOCATION;
                     proc_stall = 1; 
                     mem_read = 1;
@@ -193,7 +193,7 @@ module cache(
                     tag_w[addr_index][ slot_num[addr_index] ] = addr_tag;
                     state_w = S_IDLE;
                     
-                    //proc_stall = 0;
+                    proc_stall = 0;
                     // LRU_w[addr_index] = ~LRU_r[addr_index];
                     LRU_w[addr_index] = ~slot_num[addr_index];
                     if (proc_read) begin
@@ -324,6 +324,9 @@ module cache_I(
     reg slot_num [0:3];
 
     integer i,j;
+
+    reg [127:0] mem_rdata_r;
+    reg mem_ready_r;
     
 //==== combinational circuit ==============================
     
@@ -400,21 +403,21 @@ module cache_I(
                 mem_addr = {addr_tag, addr_index};
                 // how modify, avoid duplicate
                 
-                if (mem_ready) begin // half cycle left for CPU ?    
+                if (mem_ready_r) begin // half cycle left for CPU ?    
                     data_w[addr_index][ slot_num[addr_index] ] = mem_rdata;   
                     valid_w[addr_index][ slot_num[addr_index] ] = 1;
                     dirty_w[addr_index][ slot_num[addr_index] ] = 0;
                     tag_w[addr_index][ slot_num[addr_index] ] = addr_tag;
                     state_w = S_IDLE;
                     
-                    //proc_stall = 0;
+                    proc_stall = 0;
                     // LRU_w[addr_index] = ~LRU_r[addr_index];
                     LRU_w[addr_index] = ~slot_num[addr_index];
                         case (addr_offset) // *32
-                            0: proc_rdata = mem_rdata[31 : 0];
-                            1: proc_rdata = mem_rdata[63 : 32];
-                            2: proc_rdata = mem_rdata[95 : 64];
-                            3: proc_rdata = mem_rdata[127 : 96];
+                            0: proc_rdata = mem_rdata_r[31 : 0];
+                            1: proc_rdata = mem_rdata_r[63 : 32];
+                            2: proc_rdata = mem_rdata_r[95 : 64];
+                            3: proc_rdata = mem_rdata_r[127 : 96];
                         endcase
 
                 end
@@ -450,6 +453,15 @@ module cache_I(
 
             state_r <= state_w;
         end
+    end
+
+    always @(posedge clk) begin
+        if (proc_reset)begin
+            mem_rdata_r <= 0;
+            mem_rdata_r <= 0;
+        end
+        mem_rdata_r <= mem_rdata;
+        mem_ready_r <= mem_ready;
     end
 
 endmodule
