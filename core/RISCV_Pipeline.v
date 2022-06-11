@@ -42,8 +42,10 @@ assign ICACHE_wen = 0;
 //---------module instantiation and module wire definition-------
 wire [31:0] pc_IF_ID,inst_IF_ID;
 wire [31:0] pc_jump;
-wire haz_ID;
+wire haz_ID = 0;
 wire EX_haz;
+wire branch_stall;
+wire IDIF_bubble;
 IF instfetch(
     .clk(clk),
     .rst_n(rst_n),
@@ -57,7 +59,8 @@ IF instfetch(
     .d_stall(DCACHE_stall),
     .i_ID_haz(haz_ID),
     .i_EX_haz(EX_haz),
-    .pc_top(PC)
+    .pc_top(PC),
+    .i_bubble(IDIF_bubble)
 );
 
 wire [31:0] pc_ID_EX;
@@ -76,6 +79,15 @@ wire ID_jalr,ID_branch;
 wire [4:0] ID_EX_rs1_addr,ID_EX_rs2_addr;
 wire [31:0] inst_ID_EX,inst_EX_MEM,inst_MEM_WB;
 
+wire ID_EX_branch; 
+BranchPredict branchpre(
+    .i_ID_EX_branch(ID_EX_branch),
+    .i_EX_jump(jump),
+    .o_branch_stall(branch_stall)
+);
+
+wire ID_EX_jalr;
+
 ID instdec(
     .clk(clk),
     .rst_n(rst_n),
@@ -92,8 +104,8 @@ ID instdec(
     .o_ctrl_mem(ctrl_mem_ID_EX),
     .o_ctrl_ex(ctrl_ex_ID_EX),
     .i_regwrite(regwrite_WB_ID),
-    .o_jump(jump),
-    .o_pc_jump(pc_jump),
+    //.o_jump(jump),
+    //.o_pc_jump(pc_jump),
     .stall(DCACHE_stall),
     .o_rs1_addr(rs1_addr_ID),
     .o_rs2_addr(rs2_addr_ID),
@@ -107,7 +119,11 @@ ID instdec(
     .o_ID_EX_rs2_addr(ID_EX_rs2_addr),
     .i_EX_haz(EX_haz),
     .o_inst(inst_ID_EX),//debug
-    .o_ID_branch(ID_branch)
+    .o_ID_branch(ID_branch),
+    .i_bubble(IDIF_bubble),
+    .o_ID_EX_beq(ID_EX_beq),
+    .o_ID_EX_bne(ID_EX_bne),
+    .o_ID_EX_jalr(ID_EX_jalr)
 );
 
 wire [4:0] rd_EX_MEM;
@@ -143,9 +159,16 @@ EX exe(
     .i_forward2(EX_forward2),
     .i_EX_haz(EX_haz),
     .i_inst(inst_ID_EX),
-    .o_inst(inst_EX_MEM)
+    .o_inst(inst_EX_MEM),
+    .i_ID_EX_beq(ID_EX_beq),
+    .i_ID_EX_bne(ID_EX_bne),
+    .i_ID_EX_jalr(ID_EX_jalr),
+    .o_pc_jump(pc_jump),
+    .o_jump(jump)
 );
 
+assign IDIF_bubble = (branch_stall || ID_EX_jalr);
+assign ID_EX_branch = (ID_EX_beq || ID_EX_bne);
 wire [4:0] rd_MEM_WB;
 wire [31:0] alu_MEM_WB;
 wire [31:0] mem_MEM_WB;
@@ -207,7 +230,7 @@ IDForward idforwd(
     .o_ID_forward_data2(forward_data_ID2),
     .i_ID_jalr(ID_jalr),
     .i_ID_branch(ID_branch),
-    .o_ID_haz(haz_ID) // do not happen in real life? (do not load an address then jalr to it normally) // need to repeat in IF.ID, and add bubble to EX 
+    .o_ID_haz(haz_ID)  // need to repeat in IF.ID, and add bubble to EX 
 );
 
 EXForward exforwd(
@@ -239,7 +262,7 @@ endmodule
 
 module IF (
     clk,rst_n,pc_jump,ICACHE_addr,pc,inst,jump,ICACHE_rdata,i_stall,d_stall,
-    i_ID_haz,i_EX_haz,pc_top
+    i_ID_haz,i_EX_haz,pc_top,i_bubble
 );
 
 input i_ID_haz;
@@ -253,15 +276,15 @@ output [31:0] inst; // inst pass to next stage
 input i_stall,d_stall;
 input i_EX_haz;
 output [31:0] pc_top;
+input i_bubble;
 
 //---------reg and wire definition-------
 reg [31:0] inst_w,inst_r;
 reg [31:0] pc_w,pc_r,pc_nxtstage;
 
-reg bubble;
+//reg bubble;
 //reg bubble_before;
-reg jalr_before;
-reg branch_before;
+reg jalr_before,jalr_2cycle;
 //reg haz_before;
 
 wire [6:0] opcode = inst_w[6:0];
@@ -283,6 +306,9 @@ assign pc_plus = (jal)? j_imm : 4;
 always @(*) begin
     if (jump) 
         pc_w = pc_jump;
+    else if(jalr_before || jalr)begin
+        pc_w = pc_r;
+    end
     else begin
         pc_w = pc_notjump;
     end
@@ -290,40 +316,36 @@ end
 //inst_w
 always @(*) begin
     //if (bubble || i_stall || (bubble_before && haz_before)) 
-    if (bubble || i_stall) 
+    if (i_stall || i_bubble) 
         inst_w = 32'h13; //NOP
     else
         inst_w = {ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]};
 end
+localparam NOP = 32'h13;
+wire [31:0] ICACHE_rdata_modify = {ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]};
 
-//bubble
-always @(*) begin
-    if (jalr_before) bubble = 1;
-    else if (branch_before && jump) bubble = 1;
-    else bubble = 0;
-end
 //---------sequential circuit-------
 
-reg branch_before_w,jalr_before_w;
+reg jalr_before_w,jalr_2cycle_w;
 always @(*) begin
     if (i_ID_haz || i_EX_haz) begin
-        branch_before_w = branch_before;
         jalr_before_w = jalr_before;
+        jalr_2cycle_w = jalr_2cycle;
     end
     else begin
-        branch_before_w = branch;
         jalr_before_w = jalr;
+        jalr_2cycle_w = jalr_before;
     end
 end
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)begin
-        branch_before <= 0;
         jalr_before <= 0;
+        jalr_2cycle <=0;
     end
     else begin
-        branch_before <= branch_before_w;
         jalr_before <= jalr_before_w;
+        jalr_2cycle <= jalr_2cycle_w;
     end
 end
 
@@ -449,7 +471,11 @@ module ID (
     o_ID_EX_rs2_addr,
     //from EXforward
     i_EX_haz,
-    o_inst
+    o_inst,
+    o_ID_EX_beq,
+    o_ID_EX_bne,
+    o_ID_EX_jalr,
+    i_bubble
 );
 input clk;
 input rst_n;
@@ -472,11 +498,14 @@ output [4:0] o_rs1_addr,o_rs2_addr;
 input i_forward,i_forward2;
 input [31:0] i_forward_data,i_forward_data2;
 input i_ID_haz;
-output o_ID_jalr;
+output  o_ID_jalr;
 output reg [4:0] o_ID_EX_rs1_addr,o_ID_EX_rs2_addr;
 input i_EX_haz;
 output reg [31:0] o_inst;
-output o_ID_branch;
+output  o_ID_branch;
+output reg o_ID_EX_beq,o_ID_EX_bne;
+output reg o_ID_EX_jalr;
+input i_bubble;
 //---------reg and wire definition-------
 
 
@@ -498,13 +527,12 @@ wire [6:0] opcode ;
 wire [2:0] funct3;
 wire [4:0] rd_addr;
 wire [4:0] rs1,rs2; 
-wire [1:0] ctrl_wb_w = (i_ID_haz || i_EX_haz)? 0 : {memtoreg,regwrite};
-wire [1:0] ctrl_mem_w = (i_ID_haz || i_EX_haz)? 0 : {memread,memwrite};
-wire [5:0] ctrl_ex_w = (i_ID_haz || i_EX_haz)? 0 : {alupc,aluctrl,alusrc};
+wire [1:0] ctrl_wb_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {memtoreg,regwrite};
+wire [1:0] ctrl_mem_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {memread,memwrite};
+wire [5:0] ctrl_ex_w = (i_ID_haz || i_EX_haz || i_bubble)? 0 : {alupc,aluctrl,alusrc};
 wire [31:0] rs1_data,rs2_data;
 
 reg [31:0] rs1_data_revised,rs2_data_revised;
-reg haz_before;
 
 reg_file reg0(
                 .clk  (clk) , 
@@ -595,6 +623,7 @@ always @(*) begin
         7'b1100011:begin//branch
             imm_w = b_imm;
             branch = 1;
+            alusrc = 1;
         end
         7'b1100111:begin//jalr
             imm_w = i_imm;
@@ -620,7 +649,7 @@ always @(*) begin
         7'b0000011:aluctrl = ALU_ADD; // load
         7'b0100011:aluctrl = ALU_ADD; // store
         7'b1100111:aluctrl = ALU_ADD; //jalr
-        7'b1101111:aluctrl = ALU_ADD; //jal
+        7'b1101111:aluctrl = ALU_ADD; //jal,dont care
         //7'b1100011:aluctrl = ALU_SUB; // branch,actually dont care
         default: begin //arith
             case (funct3)
@@ -661,11 +690,13 @@ reg [1:0] o_ctrl_mem_w;
 reg [1:0] o_ctrl_wb_w;
 reg [31:0] o_inst_w;
 reg [4:0] o_ID_EX_rs1_addr_w,o_ID_EX_rs2_addr_w;
-reg haz_before_w;
+reg o_ID_EX_beq_w,o_ID_EX_bne_w;
+reg o_ID_EX_jalr_w;
 
 always @(*) begin
-    haz_before_w = (i_ID_haz || i_EX_haz);
     if (stall)begin
+        o_ID_EX_beq_w = o_ID_EX_beq;
+        o_ID_EX_bne_w = o_ID_EX_bne;
         o_pc_w = o_pc;
         o_imm_w = o_imm;
         o_rs1_data_w = o_rs1_data;
@@ -677,6 +708,7 @@ always @(*) begin
         o_inst_w = o_inst;
         o_ID_EX_rs1_addr_w = o_ID_EX_rs1_addr;
         o_ID_EX_rs2_addr_w = o_ID_EX_rs2_addr;
+        o_ID_EX_jalr_w = o_ID_EX_jalr;
     end
     else begin
         o_pc_w = i_pc;
@@ -687,10 +719,18 @@ always @(*) begin
         o_ctrl_wb_w = ctrl_wb_w;
         o_ctrl_ex_w = ctrl_ex_w;
         o_ctrl_mem_w = ctrl_mem_w;
-        if (i_ID_haz || i_EX_haz)
+        if (i_ID_haz || i_EX_haz || i_bubble) begin
             o_inst_w = 32'h13;
-        else
+            o_ID_EX_jalr_w = 0;
+            o_ID_EX_beq_w = 0;
+            o_ID_EX_bne_w = 0;
+        end
+        else begin
             o_inst_w = i_inst;
+            o_ID_EX_beq_w = (branch && !funct3[0]);
+            o_ID_EX_bne_w = (branch &&  funct3[0]);
+            o_ID_EX_jalr_w = jalr;
+        end
         o_ID_EX_rs1_addr_w = rs1;
         o_ID_EX_rs2_addr_w = rs2;
     end
@@ -698,7 +738,6 @@ end
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)begin
-        haz_before <= 0;
         o_pc <= 0;
         o_imm <= 0;
         o_rs1_data <= 0;
@@ -710,9 +749,11 @@ always @(posedge clk or negedge rst_n) begin
         o_inst <= 0;
         o_ID_EX_rs1_addr <= 0;
         o_ID_EX_rs2_addr <= 0;
+        o_ID_EX_beq <= 0;
+        o_ID_EX_bne <= 0;
+        o_ID_EX_jalr <= 0;
     end
     else begin
-        haz_before <= haz_before_w;
         o_pc <= o_pc_w;
         o_imm <= o_imm_w;
         o_rs1_data <= o_rs1_data_w;
@@ -724,6 +765,9 @@ always @(posedge clk or negedge rst_n) begin
         o_inst <= o_inst_w;
         o_ID_EX_rs1_addr <= o_ID_EX_rs1_addr_w;
         o_ID_EX_rs2_addr <= o_ID_EX_rs2_addr_w;
+        o_ID_EX_beq <= o_ID_EX_beq_w;
+        o_ID_EX_bne <= o_ID_EX_bne_w;
+        o_ID_EX_jalr <= o_ID_EX_jalr_w;
     end
 end
     
@@ -757,7 +801,12 @@ module EX (
     i_forward_data2,
     i_EX_haz,
     i_inst,
-    o_inst
+    o_inst,
+    i_ID_EX_beq,
+    i_ID_EX_bne,
+    i_ID_EX_jalr,
+    o_pc_jump,
+    o_jump
 );
 
 input clk,rst_n;
@@ -773,6 +822,8 @@ input i_forward1,i_forward2;
 input [31:0] i_forward_data1,i_forward_data2;
 input i_EX_haz;
 input [31:0] i_inst;
+input i_ID_EX_beq,i_ID_EX_bne;
+input i_ID_EX_jalr;
 
 output reg [1:0] o_ctrl_mem;
 output reg [1:0] o_ctrl_wb;
@@ -780,6 +831,8 @@ output reg [4:0] o_rd_addr;
 output reg [31:0] o_rs2_data;
 output reg [31:0] o_alu_out;
 output reg [31:0] o_inst;
+output reg [31:0] o_pc_jump;
+output reg o_jump;
 
 reg [31:0] alu_in2,alu_in1;
 wire [31:0] alu_out;
@@ -789,13 +842,19 @@ wire [3:0] aluctrl = i_ctrl_ex[4:1];
 
 ALU alu0(.in1(alu_in1),.in2(alu_in2),.out(alu_out),.ctrl(aluctrl));
 
-reg [31:0] rs2_data_revised;
+reg [31:0] rs2_data_revised,rs1_data_revised;
 always @(*) begin
     if(i_forward2)
         rs2_data_revised = i_forward_data2;
     else 
         rs2_data_revised = i_rs2_data;
 end
+always @(*) begin
+    if(i_forward1)
+        rs1_data_revised = i_forward_data1;
+    else
+        rs1_data_revised = i_rs1_data;
+end 
 
 always @(*) begin
     if(alupc)begin
@@ -813,12 +872,22 @@ always @(*) begin
         alu_in1 = 4;
     end
     else begin
-        if(i_forward1)
-            alu_in1 = i_forward_data1;
-        else
-            alu_in1 = i_rs1_data;
+        alu_in1 = rs1_data_revised;
     end
 end
+
+wire rs_equal = (rs1_data_revised == rs2_data_revised);
+always @(*) begin
+    if((i_ID_EX_beq && rs_equal) || (i_ID_EX_bne && !rs_equal) || i_ID_EX_jalr)
+        o_jump = 1;
+    else 
+        o_jump = 0;
+end
+wire [31:0] pc_jump_a = (i_ID_EX_jalr)? rs1_data_revised : i_pc;
+always @(*) begin
+    o_pc_jump = pc_jump_a + i_imm;
+end
+
 reg [1:0] o_ctrl_mem_w;
 reg [1:0] o_ctrl_wb_w;
 reg [4:0] o_rd_addr_w;
@@ -1261,3 +1330,14 @@ end
     
 endmodule
 
+module BranchPredict (
+    i_ID_EX_branch,
+    i_EX_jump,
+    o_branch_stall
+);
+input i_ID_EX_branch,i_EX_jump;
+output o_branch_stall;
+
+assign o_branch_stall = i_ID_EX_branch && i_EX_jump;
+    
+endmodule
