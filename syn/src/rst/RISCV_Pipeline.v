@@ -42,9 +42,12 @@ assign ICACHE_wen = 0;
 //---------module instantiation and module wire definition-------
 wire [31:0] pc_IF_ID,inst_IF_ID;
 wire [31:0] pc_jump;
+wire haz_ID = 0;
 wire EX_haz;
 wire branch_stall;
 wire IDIF_bubble;
+wire [31:0] pc_jump_jal;
+wire jump_jal;
 IF instfetch(
     .clk(clk),
     .rst_n(rst_n),
@@ -59,7 +62,9 @@ IF instfetch(
     .i_ID_haz(haz_ID),
     .i_EX_haz(EX_haz),
     .pc_top(PC),
-    .i_bubble(IDIF_bubble)
+    .i_bubble(IDIF_bubble),
+    .i_pc_jump_jal(pc_jump_jal),
+    .i_jump_jal(jump_jal)
 );
 
 wire [31:0] pc_ID_EX;
@@ -122,7 +127,9 @@ ID instdec(
     .i_bubble(IDIF_bubble),
     .o_ID_EX_beq(ID_EX_beq),
     .o_ID_EX_bne(ID_EX_bne),
-    .o_ID_EX_jalr(ID_EX_jalr)
+    .o_ID_EX_jalr(ID_EX_jalr),
+    .o_jump_jal(jump_jal),
+    .o_pc_jump_jal(pc_jump_jal)
 );
 
 wire [4:0] rd_EX_MEM;
@@ -228,8 +235,8 @@ IDForward idforwd(
     .o_ID_forward2(forward_ID2),
     .o_ID_forward_data2(forward_data_ID2),
     .i_ID_jalr(ID_jalr),
-    .i_ID_branch(ID_branch),
-    .o_ID_haz(haz_ID)  // need to repeat in IF.ID, and add bubble to EX 
+    .i_ID_branch(ID_branch)
+    //.o_ID_haz(haz_ID)  // need to repeat in IF.ID, and add bubble to EX 
 );
 
 EXForward exforwd(
@@ -261,7 +268,7 @@ endmodule
 
 module IF (
     clk,rst_n,pc_jump,ICACHE_addr,pc,inst,jump,ICACHE_rdata,i_stall,d_stall,
-    i_ID_haz,i_EX_haz,pc_top,i_bubble
+    i_ID_haz,i_EX_haz,pc_top,i_bubble,i_jump_jal,i_pc_jump_jal
 );
 
 input i_ID_haz;
@@ -276,6 +283,8 @@ input i_stall,d_stall;
 input i_EX_haz;
 output [31:0] pc_top;
 input i_bubble;
+input i_jump_jal;
+input [31:0] i_pc_jump_jal;
 
 //---------reg and wire definition-------
 reg [31:0] inst_w,inst_r;
@@ -284,6 +293,7 @@ reg [31:0] pc_w,pc_r,pc_nxtstage;
 //reg bubble;
 //reg bubble_before;
 reg jalr_before,jalr_2cycle;
+reg jal_before;
 //reg haz_before;
 
 wire [6:0] opcode = inst_w[6:0];
@@ -299,13 +309,14 @@ assign pc_top = pc_r;
 
 //---------combinational circuit-------
 wire [31:0] pc_notjump,pc_plus;
-assign pc_notjump = pc_r + pc_plus;
-assign pc_plus = (jal)? j_imm : 4;
+assign pc_notjump = pc_r + 4;
 //pc_w
 always @(*) begin
     if (jump) 
         pc_w = pc_jump;
-    else if(jalr_before || jalr)begin
+    else if (i_jump_jal)
+        pc_w = i_pc_jump_jal;
+    else if(jalr_before || jalr || jal)begin
         pc_w = pc_r;
     end
     else begin
@@ -315,7 +326,7 @@ end
 //inst_w
 always @(*) begin
     //if (bubble || i_stall || (bubble_before && haz_before)) 
-    if (i_stall || i_bubble) 
+    if (i_stall || i_bubble || jal_before) 
         inst_w = 32'h13; //NOP
     else
         inst_w = {ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]};
@@ -325,15 +336,17 @@ wire [31:0] ICACHE_rdata_modify = {ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_r
 
 //---------sequential circuit-------
 
-reg jalr_before_w,jalr_2cycle_w;
+reg jalr_before_w,jalr_2cycle_w,jal_before_w;
 always @(*) begin
     if (i_ID_haz || i_EX_haz) begin
         jalr_before_w = jalr_before;
         jalr_2cycle_w = jalr_2cycle;
+        jal_before_w = jal_before;
     end
     else begin
         jalr_before_w = jalr;
         jalr_2cycle_w = jalr_before;
+        jal_before_w = jal;
     end
 end
 
@@ -341,10 +354,12 @@ always @(posedge clk or negedge rst_n) begin
     if (!rst_n)begin
         jalr_before <= 0;
         jalr_2cycle <=0;
+        jal_before <= 0;
     end
     else begin
         jalr_before <= jalr_before_w;
         jalr_2cycle <= jalr_2cycle_w;
+        jal_before <= jal_before_w;
     end
 end
 
@@ -474,7 +489,9 @@ module ID (
     o_ID_EX_beq,
     o_ID_EX_bne,
     o_ID_EX_jalr,
-    i_bubble
+    i_bubble,
+    o_jump_jal,
+    o_pc_jump_jal
 );
 input clk;
 input rst_n;
@@ -505,6 +522,8 @@ output  o_ID_branch;
 output reg o_ID_EX_beq,o_ID_EX_bne;
 output reg o_ID_EX_jalr;
 input i_bubble;
+output reg o_jump_jal;
+output reg [31:0] o_pc_jump_jal;
 //---------reg and wire definition-------
 
 
@@ -640,6 +659,10 @@ always @(*) begin
             imm_w = 0;
         end
     endcase
+end
+always @(*) begin
+    o_jump_jal = jal;
+    o_pc_jump_jal = i_pc + imm_w;
 end
 
 //aluctrl
@@ -875,7 +898,7 @@ always @(*) begin
     end
 end
 
-wire rs_equal = (i_rs1_data == i_rs2_data);
+wire rs_equal = (rs1_data_revised == rs2_data_revised);
 always @(*) begin
     if((i_ID_EX_beq && rs_equal) || (i_ID_EX_bne && !rs_equal) || i_ID_EX_jalr)
         o_jump = 1;

@@ -247,8 +247,8 @@ module cache(
     end
     
 //==== sequential circuit =================================
-    always@( posedge clk or posedge proc_reset) begin
-        if( proc_reset ) begin
+    always@( posedge clk or negedge proc_reset) begin
+        if( !proc_reset ) begin
             for (i = 0; i<4; i=i+1) begin
                 for (j = 0; j<2; j=j+1) begin
                     valid_r[i][j] <= 0;
@@ -274,8 +274,8 @@ module cache(
             state_r <= state_w;
         end
     end
-    always @(posedge clk or posedge proc_reset) begin
-        if (proc_reset)begin
+    always @(posedge clk or negedge proc_reset) begin
+        if (!proc_reset)begin
             mem_rdata_r <= 0;
         end
         else begin
@@ -460,8 +460,8 @@ module cache_I(
     end
     
 //==== sequential circuit =================================
-    always@( posedge clk or posedge proc_reset) begin
-        if( proc_reset ) begin
+    always@( posedge clk or negedge proc_reset) begin
+        if( !proc_reset ) begin
             for (i = 0; i<4; i=i+1) begin
                 for (j = 0; j<2; j=j+1) begin
                     valid_r[i][j] <= 0;
@@ -488,8 +488,8 @@ module cache_I(
         end
     end
 
-    always @(posedge clk or posedge proc_reset) begin
-        if (proc_reset)begin
+    always @(posedge clk or negedge proc_reset) begin
+        if (!proc_reset)begin
             mem_rdata_r <= 0;
         end
         else begin
