@@ -36,6 +36,7 @@ module cache(
     localparam S_IDLE = 0;
     localparam S_WRITE_BACK = 1;
     localparam S_ALLOCATION = 2;
+    localparam S_OUTPUT = 3;
 
 //==== wire/reg definition ================================
     
@@ -186,16 +187,43 @@ module cache(
                 mem_addr = {addr_tag, addr_index};
                 // how modify, avoid duplicate
                 
-                if (mem_ready_r) begin // half cycle left for CPU ?    
-                    data_w[addr_index][ slot_num[addr_index] ] = mem_rdata_r;   
+                if (mem_ready) begin // half cycle left for CPU ?    
+                    data_w[addr_index][ slot_num[addr_index] ] = mem_rdata;   
                     valid_w[addr_index][ slot_num[addr_index] ] = 1;
                     dirty_w[addr_index][ slot_num[addr_index] ] = 0;
                     tag_w[addr_index][ slot_num[addr_index] ] = addr_tag;
-                    state_w = S_IDLE;
                     
-                    proc_stall = 0;
                     // LRU_w[addr_index] = ~LRU_r[addr_index];
                     LRU_w[addr_index] = ~slot_num[addr_index];
+                    
+                    // state_w = S_IDLE;
+                    // proc_stall = 0;
+                    if (proc_read) begin
+                        state_w = S_OUTPUT;
+                        proc_stall = 1;
+                    end
+                    else begin // write
+                        state_w = S_IDLE;
+                        proc_stall = 0;
+
+                        dirty_w[addr_index][ slot_num[addr_index] ] = 1;
+                        case (addr_offset) // *32
+                            0: data_w[addr_index][ slot_num[addr_index] ][31 : 0] = proc_wdata;
+                            1: data_w[addr_index][ slot_num[addr_index] ][63 : 32] = proc_wdata;
+                            2: data_w[addr_index][ slot_num[addr_index] ][95 : 64] = proc_wdata;
+                            3: data_w[addr_index][ slot_num[addr_index] ][127 : 96] = proc_wdata;
+                        endcase
+
+                    end
+
+
+                end
+            end
+
+            S_OUTPUT: begin
+                    state_w = S_IDLE;
+                    proc_stall = 0;
+                    
                     if (proc_read) begin
                         case (addr_offset) // *32
                             0: proc_rdata = mem_rdata_r[31 : 0];
@@ -204,17 +232,16 @@ module cache(
                             3: proc_rdata = mem_rdata_r[127 : 96];
                         endcase
                     end
-                    else begin // write
-                        dirty_w[addr_index][ slot_num[addr_index] ] = 1;
-                        case (addr_offset) // *32
-                            0: data_w[addr_index][ slot_num[addr_index] ][31 : 0] = proc_wdata;
-                            1: data_w[addr_index][ slot_num[addr_index] ][63 : 32] = proc_wdata;
-                            2: data_w[addr_index][ slot_num[addr_index] ][95 : 64] = proc_wdata;
-                            3: data_w[addr_index][ slot_num[addr_index] ][127 : 96] = proc_wdata;
-                        endcase
-                    end
-
-                end
+                    // else begin // write
+                    //     dirty_w[addr_index][ slot_num[addr_index] ] = 1;
+                    //     case (addr_offset) // *32
+                    //         0: data_w[addr_index][ slot_num[addr_index] ][31 : 0] = proc_wdata;
+                    //         1: data_w[addr_index][ slot_num[addr_index] ][63 : 32] = proc_wdata;
+                    //         2: data_w[addr_index][ slot_num[addr_index] ][95 : 64] = proc_wdata;
+                    //         3: data_w[addr_index][ slot_num[addr_index] ][127 : 96] = proc_wdata;
+                    //     endcase
+                    // end
+                
             end
 
         endcase
