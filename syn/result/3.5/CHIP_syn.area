@@ -1,0 +1,30 @@
+ 
+****************************************
+Report : area
+Design : CHIP
+Version: R-2020.09-SP5
+Date   : Sun Jun 12 11:28:14 2022
+****************************************
+
+Library(s) Used:
+
+    slow (File: /usr/cad/designkit/digital/T13/CBDK_IC_Contest_v2.5/SynopsysDC/db/slow.db)
+
+Number of ports:                         1557
+Number of nets:                         27515
+Number of cells:                        26253
+Number of combinational cells:          22101
+Number of sequential cells:              4146
+Number of macros/black boxes:               0
+Number of buf/inv:                       4522
+Number of references:                     165
+
+Combinational area:             234399.056616
+Buf/Inv area:                    36270.043334
+Noncombinational area:          123881.344599
+Macro/Black Box area:                0.000000
+Net Interconnect area:         3039695.457397
+
+Total cell area:                358280.401215
+Total area:                    3397975.858613
+1
