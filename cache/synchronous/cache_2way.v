@@ -152,11 +152,11 @@ module cache(
                     else begin // write back existing data
                         state_w = S_WRITE_BACK;
                         proc_stall = 1;
-                        mem_write = 1;
+                        //mem_write = 1;
                         // mem_addr = {tag_r[addr_index][ LRU_r[addr_index] ], addr_index};
-                        mem_addr = {tag_r[addr_index][ slot_num[addr_index] ], addr_index};
+                        //mem_addr = {tag_r[addr_index][ slot_num[addr_index] ], addr_index};
                         // mem_wdata = data_r[addr_index][ LRU_r[addr_index] ];
-                        mem_wdata = data_r[addr_index][ slot_num[addr_index] ];
+                        //mem_wdata = data_r[addr_index][ slot_num[addr_index] ];
                     end
 
                     //fetch with write allocation(fetch when write miss)
