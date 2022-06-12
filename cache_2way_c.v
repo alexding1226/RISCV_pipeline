@@ -25,7 +25,7 @@ module cache(
     // processor interface
     input          proc_reset;
     input          proc_read, proc_write;
-    input    [29:0] proc_addr;
+    input   [29:0] proc_addr;
     input   [31:0] proc_wdata;
     output reg         proc_stall;
     output reg  [31:0] proc_rdata;
@@ -195,7 +195,6 @@ module cache(
                 
                 if (mem_ready) begin // half cycle left for CPU ?    
                     data_w[addr_index][ slot_num[addr_index] ] = mem_rdata;   
-                     
                     valid_w[addr_index][ slot_num[addr_index] ] = 1;
                     dirty_w[addr_index][ slot_num[addr_index] ] = 0;
                     tag_w[addr_index][ slot_num[addr_index] ] = addr_tag;
@@ -210,8 +209,9 @@ module cache(
                         proc_stall = 1;
                     end
                     else begin // write
+                        // state_w = S_OUTPUT;
                         state_w = S_IDLE;
-                        proc_stall = 0;
+                        proc_stall = 1;
 
                         dirty_w[addr_index][ slot_num[addr_index] ] = 1;
                         case (addr_offset) // *32
@@ -233,10 +233,10 @@ module cache(
                 
                 if (proc_read) begin
                     case (addr_offset) // *32
-                        3: proc_rdata = mem_rdata_r[31 : 0];
-                        2: proc_rdata = mem_rdata_r[63 : 32];
-                        1: proc_rdata = mem_rdata_r[95 : 64];
-                        0: proc_rdata = mem_rdata_r[127 : 96];
+                        0: proc_rdata = mem_rdata_r[31 : 0];
+                        1: proc_rdata = mem_rdata_r[63 : 32];
+                        2: proc_rdata = mem_rdata_r[95 : 64];
+                        3: proc_rdata = mem_rdata_r[127 : 96];
                     endcase
                 end
                 // else begin // write
