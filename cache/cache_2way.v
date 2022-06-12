@@ -152,11 +152,11 @@ module cache(
                     else begin // write back existing data
                         state_w = S_WRITE_BACK;
                         proc_stall = 1;
-                        mem_write = 1;
+                        //mem_write = 1;
                         // mem_addr = {tag_r[addr_index][ LRU_r[addr_index] ], addr_index};
-                        mem_addr = {tag_r[addr_index][ slot_num[addr_index] ], addr_index};
+                        //mem_addr = {tag_r[addr_index][ slot_num[addr_index] ], addr_index};
                         // mem_wdata = data_r[addr_index][ LRU_r[addr_index] ];
-                        mem_wdata = data_r[addr_index][ slot_num[addr_index] ];
+                        //mem_wdata = data_r[addr_index][ slot_num[addr_index] ];
                     end
 
                     //fetch with write allocation(fetch when write miss)
@@ -196,14 +196,14 @@ module cache(
                     LRU_w[addr_index] = ~slot_num[addr_index];
                     
                     // state_w = S_IDLE;
-                    // proc_stall = 0;
+                     proc_stall = 0;
                     if (proc_read) begin
-                        state_w = S_OUTPUT;
-                        proc_stall = 1;
+                      state_w = S_OUTPUT;
+                      proc_stall = 1;
                     end
-                    else begin // write
-                        state_w = S_IDLE;
-                        proc_stall = 0;
+                     else begin // write
+                         state_w = S_IDLE;
+                         proc_stall = 1;
 
                         dirty_w[addr_index][ slot_num[addr_index] ] = 1;
                         case (addr_offset) // *32
@@ -213,7 +213,7 @@ module cache(
                             3: data_w[addr_index][ slot_num[addr_index] ][127 : 96] = proc_wdata;
                         endcase
 
-                    end
+                     end
 
 
                 end
@@ -247,7 +247,7 @@ module cache(
     end
     
 //==== sequential circuit =================================
-    always@( posedge clk or posedge proc_reset) begin
+    always@( posedge clk) begin
         if( proc_reset ) begin
             for (i = 0; i<4; i=i+1) begin
                 for (j = 0; j<2; j=j+1) begin
@@ -274,7 +274,7 @@ module cache(
             state_r <= state_w;
         end
     end
-    always @(posedge clk or posedge proc_reset) begin
+    always @(posedge clk) begin
         if (proc_reset)begin
             mem_rdata_r <= 0;
         end
@@ -460,7 +460,7 @@ module cache_I(
     end
     
 //==== sequential circuit =================================
-    always@( posedge clk or posedge proc_reset) begin
+    always@( posedge clk ) begin
         if( proc_reset ) begin
             for (i = 0; i<4; i=i+1) begin
                 for (j = 0; j<2; j=j+1) begin
@@ -488,7 +488,7 @@ module cache_I(
         end
     end
 
-    always @(posedge clk or posedge proc_reset) begin
+    always @(posedge clk) begin
         if (proc_reset)begin
             mem_rdata_r <= 0;
         end

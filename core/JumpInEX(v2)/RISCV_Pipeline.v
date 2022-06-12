@@ -573,7 +573,7 @@ localparam ALU_SRL = 4'b1000;
 always @(*) begin
     if(i_forward)
         rs1_data_revised = i_forward_data;
-    else if (i_rd_addr && i_rd_addr == rs1)
+    else if (i_rd_addr && i_rd_addr == rs1 && i_regwrite)
         rs1_data_revised = i_rd_data;
     else 
         rs1_data_revised = rs1_data;
@@ -581,7 +581,7 @@ end
 always @(*) begin
     if(i_forward2)
         rs2_data_revised = i_forward_data2;
-    else if (i_rd_addr && i_rd_addr == rs2)
+    else if (i_rd_addr && i_rd_addr == rs2 && i_regwrite)
         rs2_data_revised = i_rd_data;
     else
         rs2_data_revised = rs2_data;
