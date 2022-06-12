@@ -1,0 +1,69 @@
+Information: Updating design information... (UID-85)
+Warning: Design 'CHIP' contains 1 high-fanout nets. A fanout number of 1000 will be used for delay calculations involving these nets. (TIM-134)
+ 
+****************************************
+Report : timing
+        -path full
+        -delay max
+        -max_paths 1
+Design : CHIP
+Version: R-2020.09-SP5
+Date   : Mon Jun 13 02:42:06 2022
+****************************************
+
+ # A fanout number of 1000 was used for high fanout net computations.
+
+Operating Conditions: slow   Library: slow
+Wire Load Model Mode: top
+
+  Startpoint: i_RISCV/instdec/o_ID_EX_jalr_reg
+              (rising edge-triggered flip-flop clocked by CLK)
+  Endpoint: i_RISCV/instfetch/pc_r_reg[31]
+            (rising edge-triggered flip-flop clocked by CLK)
+  Path Group: CLK
+  Path Type: max
+
+  Des/Clust/Port     Wire Load Model       Library
+  ------------------------------------------------
+  CHIP               tsmc13_wl10           slow
+
+  Point                                                   Incr       Path
+  --------------------------------------------------------------------------
+  clock CLK (rise edge)                                   0.00       0.00
+  clock network delay (ideal)                             0.50       0.50
+  i_RISCV/instdec/o_ID_EX_jalr_reg/CK (DFFRX4)            0.00 #     0.50 r
+  i_RISCV/instdec/o_ID_EX_jalr_reg/Q (DFFRX4)             0.35       0.85 f
+  U4269/Y (INVX16)                                        0.17       1.02 r
+  U7435/Y (NAND2XL)                                       0.12       1.14 f
+  U2878/Y (OAI21XL)                                       0.32       1.46 r
+  U4600/Y (NAND2X1)                                       0.27       1.73 f
+  U2817/Y (OAI21X1)                                       0.33       2.06 r
+  U4274/Y (NAND2X1)                                       0.11       2.17 f
+  U4272/Y (AND2X4)                                        0.12       2.30 f
+  U4271/Y (OAI21X1)                                       0.16       2.46 r
+  U7570/Y (AOI21X1)                                       0.12       2.57 f
+  U4277/Y (OAI2BB1X4)                                     0.10       2.67 r
+  U4276/Y (AOI21X4)                                       0.07       2.74 f
+  U4275/Y (OAI21X1)                                       0.18       2.91 r
+  U3728/Y (XNOR2X1)                                       0.18       3.10 f
+  U8306/Y (AOI22X1)                                       0.20       3.29 r
+  U4438/Y (OAI2BB1X2)                                     0.07       3.36 f
+  U4556/Y (AOI21X1)                                       0.17       3.53 r
+  U5953/Y (NAND3BX2)                                      0.08       3.62 f
+  i_RISCV/instfetch/pc_r_reg[31]/D (DFFRX2)               0.00       3.62 f
+  data arrival time                                                  3.62
+
+  clock CLK (rise edge)                                   3.30       3.30
+  clock network delay (ideal)                             0.50       3.80
+  clock uncertainty                                      -0.10       3.70
+  i_RISCV/instfetch/pc_r_reg[31]/CK (DFFRX2)              0.00       3.70 r
+  library setup time                                     -0.08       3.62
+  data required time                                                 3.62
+  --------------------------------------------------------------------------
+  data required time                                                 3.62
+  data arrival time                                                 -3.62
+  --------------------------------------------------------------------------
+  slack (MET)                                                        0.00
+
+
+1

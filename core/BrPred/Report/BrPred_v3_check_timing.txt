@@ -1,0 +1,25 @@
+Information: Checking out the license 'DesignWare'. (SEC-104)
+Warning: Main library 'dw_foundation.sldb' has no time units specified, but library 'typical' does. (TIM-107)
+Warning: Main library 'dw_foundation.sldb' has no capacitance units specified, but library 'typical' does. (TIM-108)
+Warning: The trip points for the library named typical differ from those in the library named dw_foundation.sldb. (TIM-164)
+Information: Changed wire load model for 'alt1' from '(none)' to 'tsmc13_wl10'. (OPT-170)
+Information: Changed wire load model for 'astr' from '(none)' to 'tsmc13_wl10'. (OPT-170)
+Information: Changed wire load model for 'alt1' from '(none)' to 'tsmc13_wl10'. (OPT-170)
+Information: Changed wire load model for 'astr' from '(none)' to 'tsmc13_wl10'. (OPT-170)
+Information: Updating design information... (UID-85)
+Warning: Design 'CHIP' contains 6 high-fanout nets. A fanout number of 1000 will be used for delay calculations involving these nets. (TIM-134)
+
+Information: Checking generated_clocks...
+
+Information: Checking loops...
+
+Information: Checking no_input_delay...
+
+Information: Checking unconstrained_endpoints...
+
+Information: Checking pulse_clock_cell_type...
+
+Information: Checking no_driving_cell...
+
+Information: Checking partial_input_delay...
+1
