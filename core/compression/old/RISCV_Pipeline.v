@@ -16,8 +16,7 @@ module RISCV_Pipeline (
 		DCACHE_wdata   ,
 		DCACHE_stall   ,
 		DCACHE_rdata   ,
-        PC,
-        ICACHE_interrupt
+        PC
 );
 
 input         clk, rst_n ;
@@ -36,7 +35,6 @@ output [30:0] ICACHE_addr ;
 output [31:0] ICACHE_wdata;
 input  [31:0] ICACHE_rdata;
 output [31:0] PC;
-output ICACHE_interrupt;
 
 assign ICACHE_ren = 1;
 assign ICACHE_wen = 0;
@@ -53,7 +51,6 @@ wire [31:0] pc_jump_jal;
 wire jump_jal;
 wire jump ;
 wire compressed_IF_ID,compressed_ID_EX;
-wire pc_error;
 //wire ID_EX_bubble;
 IF instfetch(
     .clk(clk),
@@ -72,9 +69,7 @@ IF instfetch(
     .i_bubble(IDIF_bubble),
     .i_pc_jump_jal(pc_jump_jal),
     .i_jump_jal(jump_jal),
-    .o_compressed(compressed_IF_ID),
-    .o_pc_error(pc_error),
-    .ICACHE_interrupt(ICACHE_interrupt)
+    .o_compressed(compressed_IF_ID)
 );
 
 wire [31:0] pc_ID_EX;
@@ -141,9 +136,7 @@ ID instdec(
     .o_jump_jal(jump_jal),
     .o_pc_jump_jal(pc_jump_jal),
     .i_compressed(compressed_IF_ID),
-    .o_compressed(compressed_ID_EX),
-    .i_icache_stall(ICACHE_stall),
-    .i_pc_error(pc_error)
+    .o_compressed(compressed_ID_EX)
     //.o_ID_EX_bubble(ID_EX_bubble)
 );
 
@@ -294,7 +287,7 @@ endmodule
 
 module IF (
     clk,rst_n,pc_jump,ICACHE_addr,pc,inst,jump,ICACHE_rdata,i_stall,d_stall,
-    i_ID_haz,i_EX_haz,pc_top,i_bubble,i_jump_jal,i_pc_jump_jal,o_compressed,o_pc_error,ICACHE_interrupt
+    i_ID_haz,i_EX_haz,pc_top,i_bubble,i_jump_jal,i_pc_jump_jal,o_compressed
 );
 
 input i_ID_haz;
@@ -312,8 +305,6 @@ input i_bubble;
 input i_jump_jal;
 input [31:0] i_pc_jump_jal;
 output reg o_compressed;
-output reg o_pc_error;
-output reg ICACHE_interrupt;
 
 //---------reg and wire definition-------
 reg [31:0] inst_w,inst_r;
@@ -326,12 +317,12 @@ reg jal_before;
 //reg haz_before;
 
 wire [6:0] opcode = inst_w[6:0];
+wire [31:0] j_imm = {{12{inst_w[31]}},inst_w[19:12],inst_w[20],inst_w[30:25],inst_w[24:21],1'b0};
+wire jal = (opcode ==  7'b1101111);
+wire jalr = (opcode == 7'b1100111);
+wire branch = (opcode == 7'b1100011);
 
-
-reg jal; 
-reg jalr; 
-reg branch; 
-
+wire [31:0] inst_dec;
 //---------output assignment-------
 assign inst = inst_r;
 assign pc = pc_nxtstage;
@@ -340,41 +331,14 @@ assign pc_top = pc_r;
 
 //---------combinational circuit-------
 
+CompressDecode decode(
+    .i_inst_comp(ICACHE_rdata[15:0]),
+    .o_inst_dec(inst_dec)
+);
 
 wire compressed = ((ICACHE_rdata[1:0] != 2'b11) && (!i_stall));
 reg [15:0] full_inst_low_w,full_inst_low_r,full_inst_low; //store the lower 16 bit of cross block instruction
 reg wait_full_r,wait_full,wait_full_w; // need to wait higher 16 bit
-
-always @(*) begin
-    jal = 0;
-    jalr = 0;
-    branch = 0;
-    if (i_stall || i_bubble || jal_before || wait_full_w) begin
-        jal = 0;
-        jalr = 0;
-        branch = 0;
-    end
-    else if(!compressed)begin
-        jal = (opcode ==  7'b1101111);
-        jalr = (opcode == 7'b1100111);
-        branch = (opcode == 7'b1100011);
-    end
-    else begin
-        case (ICACHE_rdata[1:0])
-            2'b01:begin
-                case (ICACHE_rdata[15:13])
-                    3'b101:jal = 1;
-                    3'b001:jal = 1; 
-                    3'b110:branch = 1;
-                    3'b111:branch = 1;
-                endcase
-            end 
-            2'b10:begin
-                if ((ICACHE_rdata[15]) && (ICACHE_rdata[6:2] == 0)) jalr = 1;
-            end
-        endcase
-    end
-end
 
 
 always @(*) begin
@@ -382,15 +346,13 @@ always @(*) begin
     full_inst_low = ICACHE_rdata[15:0];
 end
 
-wire [31:0] pc_plus2 = pc_r + 2;
-wire [31:0] pc_plus4 = pc_r + 4;
 
 reg [31:0] pc_notjump;
 always @(*) begin
     if (compressed || wait_full_r || wait_full_w) // now is lower 16 or now is higher 16 or compressed
-        pc_notjump = pc_plus2;
+        pc_notjump = pc_r + 2;
     else begin
-        pc_notjump = pc_plus4;
+        pc_notjump = pc_r + 4;
     end
 end
 
@@ -420,7 +382,7 @@ always @(*) begin
             pc_error = 1;
         end
         else begin
-            inst_w = ICACHE_rdata;
+            inst_w = (compressed)? inst_dec : ICACHE_rdata;
         end
 end
 localparam NOP = 32'h13;
@@ -458,7 +420,6 @@ reg [31:0] pc_w_verified;
 reg [31:0] inst_w_verified;
 reg [31:0] pc_nxtstage_w;
 reg o_compressed_w;
-reg o_pc_error_w;
 
 always @(*) begin
     if (i_ID_haz || i_EX_haz || d_stall)begin
@@ -466,7 +427,6 @@ always @(*) begin
         pc_w_verified = pc_r;
         pc_nxtstage_w = pc_nxtstage;
         o_compressed_w = o_compressed;
-        o_pc_error_w = o_pc_error;
         wait_full_w = wait_full_r;
         full_inst_low_w = full_inst_low_r;
     end
@@ -481,17 +441,23 @@ always @(*) begin
             wait_full_w = wait_full_r;
         end
         inst_w_verified = inst_w;
-        pc_nxtstage_w = pc_r;
+        pc_nxtstage_w = (pc_error)? pc_r - 2 : pc_r;
         o_compressed_w = compressed;
-        o_pc_error_w = pc_error;
+        full_inst_low_w = full_inst_low_r;
+    end
+    else if (d_stall)begin
+        pc_w_verified = pc_r;
+        inst_w_verified = inst_r;
+        pc_nxtstage_w = pc_nxtstage; 
+        o_compressed_w = o_compressed;
+        wait_full_w = wait_full_r;
         full_inst_low_w = full_inst_low_r;
     end
     else begin
         pc_w_verified = pc_w;
-        pc_nxtstage_w = pc_r;
+        pc_nxtstage_w = (pc_error)? pc_r - 2 : pc_r;
         inst_w_verified = inst_w;
         o_compressed_w = compressed;
-        o_pc_error_w = pc_error;
         wait_full_w = wait_full;
         full_inst_low_w = full_inst_low;
     end
@@ -505,7 +471,6 @@ always @(posedge clk or negedge rst_n) begin
         o_compressed <= 0;
         full_inst_low_r <= 0;
         wait_full_r <= 0;
-        o_pc_error <= 0;
     end
     else begin
         pc_r <= pc_w_verified;
@@ -514,7 +479,6 @@ always @(posedge clk or negedge rst_n) begin
         o_compressed <= o_compressed_w;
         full_inst_low_r <= full_inst_low_w;
         wait_full_r <= wait_full_w;
-        o_pc_error <= o_pc_error_w;
     end
 end
 
@@ -604,9 +568,7 @@ module ID (
     o_jump_jal,
     o_pc_jump_jal,
     i_compressed,
-    o_compressed,
-    i_icache_stall,
-    i_pc_error
+    o_compressed
     //o_ID_EX_bubble
 );
 input clk;
@@ -642,15 +604,6 @@ output reg o_jump_jal;
 output reg [31:0] o_pc_jump_jal;
 input i_compressed;
 output reg o_compressed;
-input i_icache_stall;
-wire [31:0] inst_dec,inst;
-input i_pc_error;
-
-CompressDecode decode(
-    .i_inst_comp(i_inst[15:0]),
-    .o_inst_dec(inst_dec)
-);
-assign inst = (i_inst[1:0] != 2'b11 && i_inst)? inst_dec:i_inst;
 //output reg o_ID_EX_bubble;
 //---------reg and wire definition-------
 
@@ -692,16 +645,16 @@ reg_file reg0(
                 .q1   (rs1_data) , 
                 .q2   (rs2_data) );
 
-assign i_imm = {{21{inst[31]}},inst[30:25],inst[24:21],inst[20]};
-assign s_imm = {{21{inst[31]}},inst[30:25],inst[11:8],inst[7]};
-assign b_imm = {{20{inst[31]}},inst[7],inst[30:25],inst[11:8],1'b0};
-assign j_imm = {{12{inst[31]}},inst[19:12],inst[20],inst[30:25],inst[24:21],1'b0};
+assign i_imm = {{21{i_inst[31]}},i_inst[30:25],i_inst[24:21],i_inst[20]};
+assign s_imm = {{21{i_inst[31]}},i_inst[30:25],i_inst[11:8],i_inst[7]};
+assign b_imm = {{20{i_inst[31]}},i_inst[7],i_inst[30:25],i_inst[11:8],1'b0};
+assign j_imm = {{12{i_inst[31]}},i_inst[19:12],i_inst[20],i_inst[30:25],i_inst[24:21],1'b0};
 
-assign opcode = inst[6:0];
-assign funct3 = inst[14:12];
-assign rd_addr = inst[11:7];
-assign rs1 = inst[19:15];
-assign rs2 = inst[24:20];
+assign opcode = i_inst[6:0];
+assign funct3 = i_inst[14:12];
+assign rd_addr = i_inst[11:7];
+assign rs1 = i_inst[19:15];
+assign rs2 = i_inst[24:20];
 assign o_rs1_addr = rs1;
 assign o_rs2_addr = rs2;
 assign o_ID_jalr = jalr;
@@ -804,11 +757,11 @@ always @(*) begin
         //7'b1100011:aluctrl = ALU_SUB; // branch,actually dont care
         default: begin //arith
             case (funct3)
-                3'b000: aluctrl = (inst[30] && opcode[5])? ALU_SUB:ALU_ADD;
+                3'b000: aluctrl = (i_inst[30] && opcode[5])? ALU_SUB:ALU_ADD;
                 3'b001: aluctrl = ALU_SLL;
                 3'b010: aluctrl = ALU_SLT;
                 3'b100: aluctrl = ALU_XOR;
-                3'b101: aluctrl = (inst[30])? ALU_SRA : ALU_SRL;
+                3'b101: aluctrl = (i_inst[30])? ALU_SRA : ALU_SRL;
                 3'b110: aluctrl = ALU_OR;
                 3'b111: aluctrl = ALU_AND;
                 default: aluctrl = 0;
@@ -850,7 +803,7 @@ always @(*) begin
     if (stall)begin
         o_ID_EX_beq_w = o_ID_EX_beq;
         o_ID_EX_bne_w = o_ID_EX_bne;
-        o_pc_w = o_pc ;
+        o_pc_w = o_pc;
         o_imm_w = o_imm;
         o_rs1_data_w = o_rs1_data;
         o_rs2_data_w = o_rs2_data;
@@ -866,7 +819,7 @@ always @(*) begin
         //o_ID_EX_bubble_w = o_ID_EX_bubble;
     end
     else begin
-        o_pc_w = (i_pc_error)? i_pc-2 : i_pc;
+        o_pc_w = i_pc;
         o_imm_w = imm_w;
         o_rs1_data_w = rs1_data_revised;
         o_rs2_data_w = rs2_data_revised;
@@ -883,7 +836,7 @@ always @(*) begin
             o_ID_EX_bne_w = 0;
         end
         else begin
-            o_inst_w = inst;
+            o_inst_w = i_inst;
             o_ID_EX_beq_w = (branch && !funct3[0]);
             o_ID_EX_bne_w = (branch &&  funct3[0]);
             o_ID_EX_jalr_w = jalr;
