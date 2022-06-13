@@ -5,7 +5,6 @@ Cyle time for post-syn simulation :
     Baseline: 2.31 ns
     L2Cache: 3.5 ns
     BrPred: 3.4 ns
-    Compression: 3.5ns
+    Compression: 3.3ns
     Final:
 
-Compression 還沒合
