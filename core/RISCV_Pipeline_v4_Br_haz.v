@@ -427,6 +427,9 @@ always @(*) begin
     // plus = 0;
     // zero = 0;
     pc_before_branch_w = pc_before_branch_r;
+    if (i_Br_BrPred) begin // branch @ ID
+        pc_before_branch_w = pc_r;
+    end
     
     if (i_last_pred_valid) begin // a prediction took place
         if (i_last_pred != jump) begin // wrong prediction
@@ -700,7 +703,7 @@ module BrPred (
         // end        
         /* else */
         // d_stall :  
-        if (/* d_stall || */ i_ID_haz /* || i_EX_haz */) begin
+        if (d_stall || i_ID_haz || i_EX_haz) begin
             ID_BrPred_d_w = ID_BrPred_d_r;
             update_enable_w = update_enable_r;
         end
@@ -723,7 +726,7 @@ module BrPred (
     always @(*) begin
         state_w = state_r;
 
-        if (/* d_stall || */ i_ID_haz /* || i_EX_haz */) begin
+        if (d_stall || i_ID_haz || i_EX_haz) begin
             state_w = state_r;
         end
 
